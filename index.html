@@ -1,0 +1,539 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#F7F1E8">
+  <meta name="description" content="DAYFLOW — Your personal space to organise life, track progress and find your flow.">
+  <title>DAYFLOW — Your Personal Space</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="DAYFLOW home">
+        <span class="brand-mark">D</span>
+        <span class="brand-name">dayflow<span class="brand-period">.</span></span>
+      </a>
+
+      <div class="sidebar-section">
+        <p class="sidebar-label">WORKSPACE</p>
+
+        <nav class="sidebar-nav" aria-label="Main navigation">
+          <a href="#overview" class="nav-link active" data-page="overview">
+            <span class="nav-icon">⌂</span>
+            <span>Overview</span>
+          </a>
+
+          <a href="#tasks" class="nav-link" data-page="tasks">
+            <span class="nav-icon">▤</span>
+            <span>My tasks</span>
+            <span class="nav-count" id="sidebar-task-count">0</span>
+          </a>
+        </nav>
+      </div>
+
+      <div class="sidebar-section">
+        <p class="sidebar-label">LIFE MANAGEMENT</p>
+
+        <nav class="sidebar-nav" aria-label="Life management">
+          <a href="#money" class="nav-link" data-page="money">
+            <span class="nav-icon">◈</span>
+            <span>Money</span>
+            <span class="nav-soon">SOON</span>
+          </a>
+
+          <a href="#fitness" class="nav-link" data-page="fitness">
+            <span class="nav-icon">♡</span>
+            <span>Fitness</span>
+            <span class="nav-soon">SOON</span>
+          </a>
+
+          <a href="#hydration" class="nav-link" data-page="hydration">
+            <span class="nav-icon">◉</span>
+            <span>Hydration</span>
+            <span class="nav-soon">SOON</span>
+          </a>
+
+          <a href="#study" class="nav-link" data-page="study">
+            <span class="nav-icon">▧</span>
+            <span>Study</span>
+            <span class="nav-soon">SOON</span>
+          </a>
+
+          <a href="#habits" class="nav-link" data-page="habits">
+            <span class="nav-icon">✳</span>
+            <span>Habits</span>
+            <span class="nav-soon">SOON</span>
+          </a>
+
+          <a href="#journal" class="nav-link" data-page="journal">
+            <span class="nav-icon">✎</span>
+            <span>Journal</span>
+            <span class="nav-soon">SOON</span>
+          </a>
+        </nav>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-quote">
+          <span class="quote-mark">“</span>
+          <p>Small steps every day create remarkable change.</p>
+          <span class="quote-author">YOUR DAILY REMINDER</span>
+        </div>
+
+        <a href="#settings" class="nav-link" data-page="settings">
+          <span class="nav-icon">⚙</span>
+          <span>Settings</span>
+        </a>
+
+        <div class="sidebar-footer">
+          <span class="status-dot"></span>
+          <span>Private · Stored locally</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+      <!-- TOP BAR -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button
+            class="icon-button mobile-menu-button"
+            id="mobile-menu-button"
+            type="button"
+            aria-label="Open navigation"
+            aria-controls="sidebar"
+            aria-expanded="false"
+          >☰</button>
+
+          <div class="breadcrumb">
+            <span>Workspace</span>
+            <span class="breadcrumb-divider">/</span>
+            <strong id="breadcrumb-current">Overview</strong>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <span class="topbar-date" id="current-date"></span>
+
+          <button
+            class="icon-button"
+            id="theme-toggle"
+            type="button"
+            aria-label="Toggle colour theme"
+            title="Toggle theme"
+          >☾</button>
+
+          <button class="profile-button" id="profile-button" type="button" aria-label="Open settings">
+            <span class="profile-avatar" id="profile-avatar">D</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- OVERVIEW PAGE -->
+      <section class="page active" id="page-overview" data-page-content="overview">
+
+        <div class="welcome-section">
+          <div>
+            <p class="eyebrow" id="greeting">A FRESH START</p>
+            <h1>Make today <span class="heading-accent">count.</span></h1>
+            <p class="welcome-subtitle">
+              A little progress each day adds up to big results.
+            </p>
+          </div>
+
+          <div class="welcome-decoration" aria-hidden="true">
+            <span class="decoration-circle circle-one"></span>
+            <span class="decoration-circle circle-two"></span>
+            <span class="decoration-sparkle">✳</span>
+          </div>
+        </div>
+
+        <!-- DAILY STATS -->
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">YOUR SNAPSHOT</p>
+            <h2>Today's overview</h2>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+
+          <article class="stat-card">
+            <div class="stat-top">
+              <span class="stat-icon peach">▤</span>
+              <span class="stat-label">TASKS</span>
+            </div>
+            <div class="stat-value" id="stat-tasks">0</div>
+            <p class="stat-description" id="stat-tasks-description">No tasks completed yet</p>
+            <div class="stat-progress">
+              <span id="task-progress-bar"></span>
+            </div>
+          </article>
+
+          <article class="stat-card">
+            <div class="stat-top">
+              <span class="stat-icon sage">◈</span>
+              <span class="stat-label">MONEY</span>
+            </div>
+            <div class="stat-value stat-placeholder">Coming soon</div>
+            <p class="stat-description">Your financial overview</p>
+          </article>
+
+          <article class="stat-card">
+            <div class="stat-top">
+              <span class="stat-icon blue">◉</span>
+              <span class="stat-label">HYDRATION</span>
+            </div>
+            <div class="stat-value stat-placeholder">Coming soon</div>
+            <p class="stat-description">Your daily water tracker</p>
+          </article>
+
+          <article class="stat-card">
+            <div class="stat-top">
+              <span class="stat-icon lavender">✳</span>
+              <span class="stat-label">HABITS</span>
+            </div>
+            <div class="stat-value stat-placeholder">Coming soon</div>
+            <p class="stat-description">Build consistent routines</p>
+          </article>
+
+        </div>
+
+        <!-- MAIN DASHBOARD GRID -->
+        <div class="dashboard-grid">
+
+          <!-- TASKS -->
+          <section class="panel tasks-preview-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">STAY ON TRACK</p>
+                <h2>Today's tasks</h2>
+              </div>
+
+              <a href="#tasks" class="text-link">View all →</a>
+            </div>
+
+            <div class="task-preview-list" id="dashboard-task-list">
+              <div class="empty-state">
+                <span class="empty-icon">✳</span>
+                <h3>Your day is a blank canvas.</h3>
+                <p>Add a task and start making progress.</p>
+                <button class="button button-primary" id="dashboard-add-task" type="button">
+                  + Add a task
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- FOCUS PANEL -->
+          <section class="panel focus-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">MAKE SPACE FOR YOU</p>
+                <h2>Focus time</h2>
+              </div>
+              <span class="focus-badge">COMING SOON</span>
+            </div>
+
+            <div class="focus-illustration" aria-hidden="true">
+              <div class="focus-orbit orbit-one"></div>
+              <div class="focus-orbit orbit-two"></div>
+              <div class="focus-center">✳</div>
+            </div>
+
+            <div class="focus-copy">
+              <h3>Find your flow.</h3>
+              <p>
+                A dedicated space for deep work, focused study and meaningful breaks.
+              </p>
+            </div>
+
+            <button class="button button-secondary" type="button" disabled>
+              Focus timer · Soon
+            </button>
+          </section>
+
+        </div>
+
+        <footer class="page-footer">
+          <span>DAYFLOW</span>
+          <span>Make room for what matters.</span>
+        </footer>
+      </section>
+
+      <!-- TASKS PAGE -->
+      <section class="page" id="page-tasks" data-page-content="tasks">
+
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">YOUR PERSONAL WORKSPACE</p>
+            <h1>My <span class="heading-accent">tasks.</span></h1>
+            <p class="welcome-subtitle">Organise your thoughts. Get things done.</p>
+          </div>
+
+          <button class="button button-primary" id="add-task-button" type="button">
+            + New task
+          </button>
+        </div>
+
+        <section class="panel task-manager-panel">
+
+          <div class="task-toolbar">
+            <div class="filter-tabs" role="group" aria-label="Filter tasks">
+              <button class="filter-tab active" type="button" data-filter="all" aria-pressed="true">
+                All
+              </button>
+              <button class="filter-tab" type="button" data-filter="todo" aria-pressed="false">
+                To do
+              </button>
+              <button class="filter-tab" type="button" data-filter="done" aria-pressed="false">
+                Completed
+              </button>
+            </div>
+
+            <label class="task-search">
+              <span aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                id="task-search"
+                placeholder="Search tasks..."
+                autocomplete="off"
+              >
+            </label>
+          </div>
+
+          <div class="task-summary">
+            <span id="task-summary-text">0 tasks</span>
+            <span id="task-completion-text">0 completed</span>
+          </div>
+
+          <div class="task-list" id="task-list" aria-live="polite">
+            <div class="empty-state">
+              <span class="empty-icon">✳</span>
+              <h3>Nothing on your list yet.</h3>
+              <p>Create your first task to get started.</p>
+            </div>
+          </div>
+
+        </section>
+
+        <footer class="page-footer">
+          <span>DAYFLOW</span>
+          <span>One thing at a time.</span>
+        </footer>
+      </section>
+
+      <!-- SETTINGS PAGE -->
+      <section class="page" id="page-settings" data-page-content="settings">
+
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">MAKE IT YOURS</p>
+            <h1>Your <span class="heading-accent">settings.</span></h1>
+            <p class="welcome-subtitle">Personalise your DAYFLOW experience.</p>
+          </div>
+        </div>
+
+        <section class="panel settings-panel">
+          <div class="settings-section">
+            <div>
+              <h2>Profile</h2>
+              <p>Choose how DAYFLOW greets you.</p>
+            </div>
+
+            <label class="settings-field">
+              <span>Your name</span>
+              <input
+                type="text"
+                id="profile-name"
+                maxlength="40"
+                placeholder="Enter your name"
+                autocomplete="name"
+              >
+            </label>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <div class="settings-section">
+            <div>
+              <h2>Appearance</h2>
+              <p>Choose the look that feels right.</p>
+            </div>
+
+            <div class="settings-control">
+              <span>Dark mode</span>
+              <button
+                class="button button-secondary"
+                id="settings-theme-toggle"
+                type="button"
+              >Toggle theme</button>
+            </div>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <div class="settings-section">
+            <div>
+              <h2>Data & privacy</h2>
+              <p>Your information stays in this browser unless you export it.</p>
+            </div>
+
+            <div class="settings-actions">
+              <button class="button button-secondary" id="export-data-button" type="button">
+                Export backup
+              </button>
+
+              <button class="button button-secondary" id="import-data-button" type="button">
+                Import backup
+              </button>
+
+              <input
+                type="file"
+                id="import-file-input"
+                accept=".json,application/json"
+                hidden
+              >
+            </div>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <div class="settings-section">
+            <div>
+              <h2>Storage</h2>
+              <p>DAYFLOW uses your browser's local database.</p>
+            </div>
+
+            <span class="storage-status" id="storage-status">
+              Checking storage...
+            </span>
+          </div>
+        </section>
+
+        <footer class="page-footer">
+          <span>DAYFLOW</span>
+          <span>Your space. Your pace.</span>
+        </footer>
+      </section>
+
+      <!-- COMING SOON PAGE -->
+      <section class="page" id="page-coming-soon" data-page-content="coming-soon">
+        <div class="coming-soon-container">
+          <span class="coming-soon-symbol">✳</span>
+          <p class="eyebrow">SOMETHING GOOD IS GROWING</p>
+          <h1 id="coming-soon-title">Coming <span class="heading-accent">soon.</span></h1>
+          <p id="coming-soon-description">
+            This part of DAYFLOW is still being developed.
+          </p>
+          <a href="#overview" class="button button-primary">Back to overview</a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- MOBILE SIDEBAR OVERLAY -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- TASK MODAL -->
+  <dialog class="modal" id="task-modal" aria-labelledby="task-modal-title">
+    <form id="task-form" class="modal-content">
+
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">MAKE IT HAPPEN</p>
+          <h2 id="task-modal-title">Create a task</h2>
+        </div>
+
+        <button
+          class="icon-button modal-close"
+          id="close-task-modal"
+          type="button"
+          aria-label="Close dialog"
+        >×</button>
+      </div>
+
+      <label class="form-field">
+        <span>Task title <span class="required">*</span></span>
+        <input
+          type="text"
+          id="task-title"
+          name="title"
+          maxlength="120"
+          placeholder="What needs to get done?"
+          required
+          autocomplete="off"
+        >
+      </label>
+
+      <div class="form-row">
+        <label class="form-field">
+          <span>Category</span>
+          <select id="task-category" name="category">
+            <option value="Personal">Personal</option>
+            <option value="Work">Work</option>
+            <option value="Study">Study</option>
+            <option value="Health">Health</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+
+        <label class="form-field">
+          <span>Priority</span>
+          <select id="task-priority" name="priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="form-field">
+        <span>Due date</span>
+        <input type="date" id="task-due-date" name="dueDate">
+      </label>
+
+      <label class="form-field">
+        <span>Notes</span>
+        <textarea
+          id="task-notes"
+          name="notes"
+          rows="3"
+          maxlength="1000"
+          placeholder="Add a few details (optional)..."
+        ></textarea>
+      </label>
+
+      <div class="modal-actions">
+        <button class="button button-secondary" id="cancel-task-button" type="button">
+          Cancel
+        </button>
+        <button class="button button-primary" id="save-task-button" type="submit">
+          Save task
+        </button>
+      </div>
+
+    </form>
+  </dialog>
+
+  <!-- TOAST NOTIFICATIONS -->
+  <div
+    class="toast"
+    id="toast"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+  ></div>
+
+</body>
+</html>
