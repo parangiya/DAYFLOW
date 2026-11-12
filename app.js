@@ -1,767 +1,709 @@
 
-/* =========================================================
-   DAYFLOW — Application Core
-   Vanilla JavaScript | IndexedDB | Local-first
-   ========================================================= */
-
 (() => {
   "use strict";
 
-  /* -------------------- CONFIG -------------------- */
-
   const DB_NAME = "dayflow-local";
   const DB_VERSION = 1;
-  const STORE_NAME = "tasks";
-  const BACKUP_VERSION = 1;
 
-  const PAGE_NAMES = {
-    overview: "Overview",
-    tasks: "My tasks",
-    settings: "Settings",
-    comingSoon: "Coming soon"
-  };
+  const STORES = [
+    "tasks",
+    "money",
+    "fitness",
+    "water",
+    "study",
+    "habits",
+    "habitChecks",
+    "focus",
+    "journal"
+  ];
 
   const state = {
     db: null,
-    tasks: [],
+    page: "overview",
     filter: "all",
     search: "",
-    editingTaskId: null,
-    currentPage: "overview"
+    editingTask: null,
+    editingRecord: null,
+    timer: null,
+    seconds: 25 * 60,
+    timerRunning: false,
+    timerMode: "focus"
   };
 
-  const $ = (selector, parent = document) =>
-    parent.querySelector(selector);
+  const $ = (selector, root = document) =>
+    root.querySelector(selector);
 
-  const $$ = (selector, parent = document) =>
-    [...parent.querySelectorAll(selector)];
+  const $$ = (selector, root = document) =>
+    [...root.querySelectorAll(selector)];
 
-  /* -------------------- HELPERS -------------------- */
-
-  function createId() {
-    if (window.crypto?.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  function todayString() {
-    const now = new Date();
-    const offset = now.getTimezoneOffset() * 60000;
-    return new Date(now.getTime() - offset)
-      .toISOString()
-      .slice(0, 10);
-  }
-
-  function formatDate(dateString) {
-    if (!dateString) return "";
-
-    const date = new Date(`${dateString}T00:00:00`);
-
-    if (Number.isNaN(date.getTime())) return "";
-
-    return new Intl.DateTimeFormat(undefined, {
-      day: "numeric",
-      month: "short",
-      year: "numeric"
-    }).format(date);
-  }
-
-  function formatToday() {
-    return new Intl.DateTimeFormat(undefined, {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric"
-    }).format(new Date());
-  }
-
-  function escapeText(value) {
-    return String(value ?? "");
-  }
-
-  function showToast(message) {
-    const toast = $("#toast");
-    if (!toast) return;
-
-    toast.textContent = message;
-    toast.classList.add("show");
-
-    clearTimeout(showToast.timeout);
-
-    showToast.timeout = setTimeout(() => {
-      toast.classList.remove("show");
-    }, 2600);
-  }
-
-  function setText(id, value) {
-    const element = document.getElementById(id);
-    if (element) element.textContent = value;
-  }
-
-  function setTheme(theme) {
-    const isDark = theme === "dark";
-
-    document.body.classList.toggle("dark", isDark);
-
-    const themeButton = $("#theme-toggle");
-    const settingsButton = $("#settings-theme-toggle");
-
-    if (themeButton) {
-      themeButton.setAttribute(
-        "aria-label",
-        isDark ? "Switch to light theme" : "Switch to dark theme"
-      );
-    }
-
-    if (settingsButton) {
-      settingsButton.textContent = isDark
-        ? "Switch to light mode"
-        : "Switch to dark mode";
-    }
-
-    try {
-      localStorage.setItem("dayflow-theme", isDark ? "dark" : "light");
-    } catch (error) {
-      console.warn("Theme preference could not be saved.", error);
-    }
-  }
-
-  function loadTheme() {
-    try {
-      const savedTheme = localStorage.getItem("dayflow-theme");
-      setTheme(savedTheme === "dark" ? "dark" : "light");
-    } catch {
-      setTheme("light");
-    }
-  }
-
-  /* -------------------- DATABASE -------------------- */
+  const escapeHTML = value =>
+    String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[char]);
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
-      if (!("indexedDB" in window)) {
-        reject(new Error("Your browser does not support local storage."));
-        return;
-      }
-
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onupgradeneeded = () => {
         const db = request.result;
 
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, {
-            keyPath: "id"
-          });
-        }
+        STORES.forEach(name => {
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, { keyPath: "id" });
+          }
+        });
       };
 
-      request.onsuccess = () => {
-        const db = request.result;
-
-        db.onversionchange = () => {
-          db.close();
-          showToast("Please refresh DAYFLOW to update its storage.");
-        };
-
-        resolve(db);
-      };
-
-      request.onerror = () => {
-        reject(request.error || new Error("Database could not open."));
-      };
-
-      request.onblocked = () => {
-        showToast("Close other DAYFLOW tabs and refresh.");
-      };
-    });
-  }
-
-  function transactionComplete(transaction) {
-    return new Promise((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () =>
-        reject(transaction.error || new Error("Storage operation failed."));
-      transaction.onabort = () =>
-        reject(transaction.error || new Error("Storage operation cancelled."));
-    });
-  }
-
-  async function getAllTasks() {
-    const transaction = state.db.transaction(STORE_NAME, "readonly");
-    const completion = transactionComplete(transaction);
-    const request = transaction.objectStore(STORE_NAME).getAll();
-
-    const tasks = await new Promise((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-
-    await completion;
-    return tasks;
   }
 
-  async function saveTaskToDB(task) {
-    const transaction = state.db.transaction(STORE_NAME, "readwrite");
-    const completion = transactionComplete(transaction);
+  function requestStore(store, mode, operation) {
+    return new Promise((resolve, reject) => {
+      const tx = state.db.transaction(store, mode);
+      const request = operation(tx.objectStore(store));
 
-    transaction.objectStore(STORE_NAME).put(task);
-
-    await completion;
-  }
-
-  async function deleteTaskFromDB(id) {
-    const transaction = state.db.transaction(STORE_NAME, "readwrite");
-    const completion = transactionComplete(transaction);
-
-    transaction.objectStore(STORE_NAME).delete(id);
-
-    await completion;
-  }
-
-  async function replaceAllTasks(tasks) {
-    const transaction = state.db.transaction(STORE_NAME, "readwrite");
-    const completion = transactionComplete(transaction);
-    const store = transaction.objectStore(STORE_NAME);
-
-    store.clear();
-
-    tasks.forEach(task => {
-      store.put(task);
-    });
-
-    await completion;
-  }
-
-  /* -------------------- TASK DATA -------------------- */
-
-  function normalizeTask(task) {
-    return {
-      id: String(task.id || createId()),
-      title: escapeText(task.title).trim(),
-      category: escapeText(task.category || "Personal"),
-      priority: ["high", "medium", "low"].includes(task.priority)
-        ? task.priority
-        : "medium",
-      completed: Boolean(task.completed),
-      dueDate: typeof task.dueDate === "string" ? task.dueDate : "",
-      notes: escapeText(task.notes),
-      createdAt: Number(task.createdAt) || Date.now(),
-      updatedAt: Number(task.updatedAt) || Date.now()
-    };
-  }
-
-  async function refreshTasks() {
-    state.tasks = (await getAllTasks()).map(normalizeTask);
-
-    renderTasks();
-    renderDashboard();
-    updateSidebarCount();
-  }
-
-  async function createTask(data) {
-    const now = Date.now();
-
-    const task = normalizeTask({
-      id: createId(),
-      ...data,
-      completed: false,
-      createdAt: now,
-      updatedAt: now
-    });
-
-    await saveTaskToDB(task);
-    await refreshTasks();
-
-    showToast("Task created successfully.");
-  }
-
-  async function updateTask(id, data) {
-    const existing = state.tasks.find(task => task.id === id);
-    if (!existing) return;
-
-    const updated = normalizeTask({
-      ...existing,
-      ...data,
-      id,
-      updatedAt: Date.now()
-    });
-
-    await saveTaskToDB(updated);
-    await refreshTasks();
-
-    showToast("Task updated.");
-  }
-
-  async function toggleTask(id) {
-    const task = state.tasks.find(item => item.id === id);
-    if (!task) return;
-
-    await updateTask(id, {
-      completed: !task.completed
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      tx.onabort = () => reject(tx.error);
     });
   }
 
-  async function deleteTask(id) {
-    const task = state.tasks.find(item => item.id === id);
-    if (!task) return;
-
-    if (!window.confirm(`Delete "${task.title}"?`)) return;
-
-    await deleteTaskFromDB(id);
-    await refreshTasks();
-
-    showToast("Task deleted.");
-  }
-
-  /* -------------------- TASK MODAL -------------------- */
-
-  const taskModal = $("#task-modal");
-  const taskForm = $("#task-form");
-
-  function openTaskModal(task = null) {
-    if (!taskModal || !taskForm) return;
-
-    state.editingTaskId = task ? task.id : null;
-
-    taskForm.reset();
-
-    setText(
-      "task-modal-title",
-      task ? "Edit task" : "Create a task"
+  const getAll = store =>
+    requestStore(store, "readonly", objectStore =>
+      objectStore.getAll()
     );
 
-    if (task) {
-      $("#task-title").value = task.title;
-      $("#task-category").value = task.category;
-      $("#task-priority").value = task.priority;
-      $("#task-due-date").value = task.dueDate || "";
-      $("#task-notes").value = task.notes || "";
-    } else {
-      $("#task-priority").value = "medium";
-    }
+  const save = (store, record) =>
+    requestStore(store, "readwrite", objectStore =>
+      objectStore.put(record)
+    );
 
-    const submitButton = $("#save-task-button");
-    if (submitButton) {
-      submitButton.textContent = task ? "Save changes" : "Create task";
-    }
+  const remove = (store, id) =>
+    requestStore(store, "readwrite", objectStore =>
+      objectStore.delete(id)
+    );
 
-    if (typeof taskModal.showModal === "function") {
-      taskModal.showModal();
-      $("#task-title")?.focus();
-    }
-  }
+  const makeId = () =>
+    crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
 
-  function closeTaskModal() {
-    if (taskModal?.open) {
-      taskModal.close();
-    }
+  const today = () =>
+    new Date().toISOString().slice(0, 10);
 
-    state.editingTaskId = null;
-  }
+  const moneyFormat = amount =>
+    new Intl.NumberFormat("en-LK", {
+      style: "currency",
+      currency: "LKR",
+      maximumFractionDigits: 0
+    }).format(Number(amount) || 0);
 
-  async function handleTaskSubmit(event) {
-    event.preventDefault();
+  function toast(message) {
+    const element = $("#toast");
 
-    const title = $("#task-title")?.value.trim();
-
-    if (!title) {
-      $("#task-title")?.focus();
-      showToast("Please enter a task title.");
+    if (!element) {
+      console.log(message);
       return;
     }
 
-    const data = {
-      title,
-      category: $("#task-category")?.value || "Personal",
-      priority: $("#task-priority")?.value || "medium",
-      dueDate: $("#task-due-date")?.value || "",
-      notes: $("#task-notes")?.value.trim() || ""
-    };
+    element.textContent = message;
+    element.classList.add("show");
 
-    const submitButton = $("#save-task-button");
-    if (submitButton) submitButton.disabled = true;
+    clearTimeout(toast.timeout);
+    toast.timeout = setTimeout(
+      () => element.classList.remove("show"),
+      2600
+    );
+  }
 
-    try {
-      if (state.editingTaskId) {
-        await updateTask(state.editingTaskId, data);
-      } else {
-        await createTask(data);
-      }
+  function setText(selector, value) {
+    const element = $(selector);
+    if (element) element.textContent = value;
+  }
 
-      closeTaskModal();
-      taskForm.reset();
-    } catch (error) {
-      console.error(error);
-      showToast("Could not save your task. Please try again.");
-    } finally {
-      if (submitButton) submitButton.disabled = false;
+  function getPreference(key, fallback = "") {
+    return localStorage.getItem(`dayflow-${key}`) ?? fallback;
+  }
+
+  function setPreference(key, value) {
+    localStorage.setItem(`dayflow-${key}`, value);
+  }
+
+  function setTheme(theme) {
+    document.body.classList.toggle("dark", theme === "dark");
+    setPreference("theme", theme);
+
+    const button = $("#theme-toggle");
+    if (button) {
+      button.setAttribute(
+        "aria-label",
+        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+      );
     }
   }
 
-  /* -------------------- TASK RENDERING -------------------- */
+  function formatDate(date) {
+    if (!date) return "";
 
-  function createTaskElement(task) {
-    const item = document.createElement("article");
-    item.className = "task-item";
-
-    if (task.completed) {
-      item.classList.add("is-completed");
-    }
-
-    const checkbox = document.createElement("button");
-    checkbox.type = "button";
-    checkbox.className = "task-checkbox";
-    checkbox.classList.toggle("completed", task.completed);
-    checkbox.setAttribute(
-      "aria-label",
-      task.completed ? "Mark task as incomplete" : "Mark task as complete"
+    return new Date(`${date}T00:00:00`).toLocaleDateString(
+      undefined,
+      { day: "numeric", month: "short" }
     );
-    checkbox.setAttribute("aria-pressed", String(task.completed));
-    checkbox.textContent = task.completed ? "✓" : "";
+  }
 
-    checkbox.addEventListener("click", () => {
-      toggleTask(task.id).catch(handleStorageError);
+  async function getTasks() {
+    return getAll("tasks");
+  }
+
+  async function addTask(data) {
+    await save("tasks", {
+      id: makeId(),
+      title: data.title.trim(),
+      category: data.category || "Personal",
+      priority: data.priority || "medium",
+      dueDate: data.dueDate || "",
+      notes: data.notes || "",
+      completed: false,
+      createdAt: new Date().toISOString()
     });
+
+    toast("Task created successfully");
+    await refresh();
+  }
+
+  async function updateTask(id, changes) {
+    const tasks = await getTasks();
+    const task = tasks.find(item => item.id === id);
+
+    if (!task) return;
+
+    await save("tasks", { ...task, ...changes });
+    toast("Task updated");
+    await refresh();
+  }
+
+  async function deleteTask(id) {
+    if (!confirm("Delete this task?")) return;
+
+    await remove("tasks", id);
+    toast("Task deleted");
+    await refresh();
+  }
+
+  function taskElement(task) {
+    const item = document.createElement("article");
+    item.className = `task-item ${task.completed ? "is-completed" : ""}`;
 
     const content = document.createElement("div");
     content.className = "task-content";
 
-    const title = document.createElement("p");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "task-checkbox";
+    checkbox.checked = task.completed;
+    checkbox.setAttribute("aria-label", "Complete task");
+
+    checkbox.addEventListener("change", () =>
+      updateTask(task.id, { completed: checkbox.checked })
+    );
+
+    const title = document.createElement("span");
     title.className = "task-title";
     title.textContent = task.title;
 
     const meta = document.createElement("div");
     meta.className = "task-meta";
-
-    const category = document.createElement("span");
-    category.textContent = task.category;
-
-    const priority = document.createElement("span");
-    priority.className = `priority priority-${task.priority}`;
-    priority.textContent =
-      task.priority.charAt(0).toUpperCase() + task.priority.slice(1);
-
-    meta.append(category, priority);
-
-    if (task.dueDate) {
-      const dueDate = document.createElement("span");
-      dueDate.className = "task-due-date";
-      dueDate.textContent = formatDate(task.dueDate);
-      meta.append(dueDate);
-    }
+    meta.textContent = [
+      task.category,
+      task.dueDate ? formatDate(task.dueDate) : "",
+      task.priority
+    ].filter(Boolean).join(" · ");
 
     content.append(title, meta);
 
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.className = "task-action-button";
-    editButton.textContent = "Edit";
-    editButton.addEventListener("click", () => openTaskModal(task));
+    const edit = document.createElement("button");
+    edit.className = "task-action-button";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => openTaskModal(task));
 
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "task-action-button";
-    deleteButton.textContent = "Delete";
-    deleteButton.addEventListener("click", () => {
-      deleteTask(task.id).catch(handleStorageError);
-    });
+    const del = document.createElement("button");
+    del.className = "task-action-button";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => deleteTask(task.id));
 
-    actions.append(editButton, deleteButton);
+    actions.append(edit, del);
     item.append(checkbox, content, actions);
 
     return item;
   }
 
-  function createEmptyMessage(message) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
+  function renderTaskList(tasks, selector) {
+    const container = $(selector);
+    if (!container) return;
 
-    const text = document.createElement("p");
-    text.textContent = message;
+    container.replaceChildren();
 
-    empty.append(text);
-    return empty;
+    if (!tasks.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = "Nothing here yet. Add your first task!";
+      container.append(empty);
+      return;
+    }
+
+    tasks.forEach(task =>
+      container.append(taskElement(task))
+    );
   }
 
-  function getFilteredTasks() {
-    let tasks = [...state.tasks];
+  async function renderTasks() {
+    let tasks = await getTasks();
 
     if (state.filter === "todo") {
       tasks = tasks.filter(task => !task.completed);
-    } else if (state.filter === "done") {
+    }
+
+    if (state.filter === "done") {
       tasks = tasks.filter(task => task.completed);
     }
 
     if (state.search) {
-      const query = state.search.toLowerCase();
-
       tasks = tasks.filter(task =>
-        `${task.title} ${task.category} ${task.notes}`
-          .toLowerCase()
-          .includes(query)
+        task.title.toLowerCase().includes(state.search)
       );
     }
 
-    return tasks.sort((a, b) => {
-      if (a.completed !== b.completed) {
-        return Number(a.completed) - Number(b.completed);
-      }
+    tasks.sort((a, b) =>
+      Number(a.completed) - Number(b.completed)
+    );
 
-      const priorityOrder = {
-        high: 0,
-        medium: 1,
-        low: 2
-      };
+    renderTaskList(tasks, "#task-list");
 
-      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-        return priorityOrder[a.priority] - priorityOrder[b.priority];
-      }
-
-      return b.createdAt - a.createdAt;
-    });
-  }
-
-  function renderTasks() {
-    const list = $("#task-list");
-    if (!list) return;
-
-    list.replaceChildren();
-
-    const tasks = getFilteredTasks();
-
-    if (tasks.length === 0) {
-      list.append(
-        createEmptyMessage(
-          state.search
-            ? "No tasks match your search."
-            : "Nothing here yet. Add your first task!"
-        )
-      );
-    } else {
-      tasks.forEach(task => {
-        list.append(createTaskElement(task));
-      });
-    }
-
-    const total = state.tasks.length;
-    const completed = state.tasks.filter(task => task.completed).length;
+    const all = await getTasks();
+    const completed = all.filter(task => task.completed).length;
 
     setText(
-      "task-summary-text",
-      `${total} ${total === 1 ? "task" : "tasks"} in total`
+      "#task-summary-text",
+      `${all.length} tasks`
     );
 
     setText(
-      "task-completion-text",
-      `${completed} of ${total} completed`
+      "#task-completion-text",
+      `${completed} completed`
+    );
+
+    setText(
+      "#sidebar-task-count",
+      String(all.filter(task => !task.completed).length)
     );
   }
 
-  /* -------------------- DASHBOARD -------------------- */
+  async function renderDashboard() {
+    const tasks = await getTasks();
+    const completed = tasks.filter(task => task.completed).length;
+    const pending = tasks.length - completed;
 
-  function renderDashboard() {
-    const total = state.tasks.length;
-    const completed = state.tasks.filter(task => task.completed).length;
-    const remaining = total - completed;
-
-    const percentage = total > 0
-      ? Math.round((completed / total) * 100)
-      : 0;
-
-    setText("stat-tasks", String(remaining));
-
-    setText(
-      "stat-tasks-description",
-      total === 0
-        ? "Start by adding your first task"
-        : `${completed} completed out of ${total}`
-    );
-
-    setText("task-completion-text", `${completed} of ${total} completed`);
+    setText("#stat-tasks", String(pending));
+    setText("#stat-tasks-description", `${completed} completed`);
 
     const progress = $("#task-progress-bar");
 
     if (progress) {
-      progress.style.width = `${percentage}%`;
-      progress.setAttribute("aria-valuenow", String(percentage));
-    }
-
-    const dashboardList = $("#dashboard-task-list");
-
-    if (dashboardList) {
-      dashboardList.replaceChildren();
-
-      const today = todayString();
-
-      const dashboardTasks = state.tasks
-        .filter(task => !task.completed)
-        .sort((a, b) => {
-          if (a.dueDate && b.dueDate) {
-            return a.dueDate.localeCompare(b.dueDate);
-          }
-
-          if (a.dueDate) return -1;
-          if (b.dueDate) return 1;
-
-          return b.createdAt - a.createdAt;
-        })
-        .slice(0, 5);
-
-      if (dashboardTasks.length === 0) {
-        dashboardList.append(
-          createEmptyMessage("You're all caught up. Enjoy your day!")
-        );
-      } else {
-        dashboardTasks.forEach(task => {
-          dashboardList.append(createTaskElement(task));
-        });
-      }
-
-      const overdueCount = state.tasks.filter(task =>
-        !task.completed &&
-        task.dueDate &&
-        task.dueDate < today
-      ).length;
-
-      if (overdueCount > 0) {
-        setText(
-          "stat-tasks-description",
-          `${overdueCount} overdue · ${completed} completed`
-        );
-      }
-    }
-  }
-
-  function updateSidebarCount() {
-    const remaining = state.tasks.filter(task => !task.completed).length;
-    setText("sidebar-task-count", String(remaining));
-  }
-
-  /* -------------------- NAVIGATION -------------------- */
-
-  function closeMobileSidebar() {
-    $("#sidebar")?.classList.remove("open");
-    $("#sidebar-overlay")?.classList.remove("visible");
-  }
-
-  function navigateTo(page) {
-    const availablePages = ["overview", "tasks", "settings"];
-    const isAvailable = availablePages.includes(page);
-
-    const targetPage = isAvailable ? page : "coming-soon";
-
-    state.currentPage = targetPage;
-
-    $$("[data-page-content]").forEach(section => {
-      section.classList.toggle(
-        "active",
-        section.dataset.pageContent === targetPage
-      );
-    });
-
-    $$("[data-page]").forEach(link => {
-      const active = link.dataset.page === page;
-      link.classList.toggle("active", active);
-
-      if (active) {
-        link.setAttribute("aria-current", "page");
-      } else {
-        link.removeAttribute("aria-current");
-      }
-    });
-
-    setText(
-      "breadcrumb-current",
-      PAGE_NAMES[targetPage] || PAGE_NAMES.comingSoon
-    );
-
-    if (!isAvailable) {
-      setText("coming-soon-title", page.charAt(0).toUpperCase() + page.slice(1));
-      setText(
-        "coming-soon-description",
-        "This section is part of the DAYFLOW roadmap and will be available in a future update."
-      );
-    }
-
-    closeMobileSidebar();
-
-    if (targetPage === "tasks") {
-      renderTasks();
-    }
-
-    if (targetPage === "overview") {
-      renderDashboard();
-    }
-  }
-
-  /* -------------------- PROFILE -------------------- */
-
-  function loadProfile() {
-    const profileInput = $("#profile-name");
-    const avatar = $("#profile-avatar");
-
-    let savedName = "Your name";
-
-    try {
-      savedName = localStorage.getItem("dayflow-profile-name") || "Your name";
-    } catch {
-      // Continue with default name.
-    }
-
-    if (profileInput) {
-      profileInput.value = savedName;
-    }
-
-    if (avatar) {
-      avatar.textContent = savedName.trim().charAt(0).toUpperCase() || "D";
+      progress.style.width = tasks.length
+        ? `${completed / tasks.length * 100}%`
+        : "0%";
     }
 
     const greeting = $("#greeting");
 
     if (greeting) {
       const hour = new Date().getHours();
+      greeting.textContent =
+        hour < 12 ? "Good morning" :
+        hour < 18 ? "Good afternoon" :
+        "Good evening";
+    }
 
-      const timeGreeting = hour < 12
-        ? "Good morning"
-        : hour < 18
-          ? "Good afternoon"
-          : "Good evening";
+    renderTaskList(
+      tasks.filter(task => !task.completed).slice(0, 5),
+      "#dashboard-task-list"
+    );
+  }
 
-      greeting.textContent = `${timeGreeting}, ${savedName}`;
+  function openTaskModal(task = null) {
+    state.editingTask = task;
+
+    const modal = $("#task-modal");
+    if (!modal) return;
+
+    setText(
+      "#task-modal-title",
+      task ? "Edit task" : "Create a task"
+    );
+
+    $("#task-title").value = task?.title || "";
+    $("#task-category").value = task?.category || "Personal";
+    $("#task-priority").value = task?.priority || "medium";
+    $("#task-due-date").value = task?.dueDate || "";
+    $("#task-notes").value = task?.notes || "";
+
+    modal.showModal();
+    $("#task-title").focus();
+  }
+
+  function closeTaskModal() {
+    const modal = $("#task-modal");
+
+    if (modal?.open) modal.close();
+
+    state.editingTask = null;
+    $("#task-form")?.reset();
+  }
+
+  async function handleTaskSubmit(event) {
+    event.preventDefault();
+
+    const data = {
+      title: $("#task-title").value.trim(),
+      category: $("#task-category").value,
+      priority: $("#task-priority").value,
+      dueDate: $("#task-due-date").value,
+      notes: $("#task-notes").value.trim()
+    };
+
+    if (!data.title) return;
+
+    if (state.editingTask) {
+      await updateTask(state.editingTask.id, data);
+    } else {
+      await addTask(data);
+    }
+
+    closeTaskModal();
+  }
+
+  const MODULES = {
+    money: {
+      title: "Money",
+      description: "Keep track of your income and expenses.",
+      store: "money",
+      fields: [
+        ["type", "Type", "select", ["expense", "income"]],
+        ["amount", "Amount (LKR)", "number"],
+        ["category", "Category", "text"],
+        ["description", "Description", "text"],
+        ["date", "Date", "date"]
+      ]
+    },
+    fitness: {
+      title: "Fitness",
+      description: "Record your activities and progress.",
+      store: "fitness",
+      fields: [
+        ["activity", "Activity", "text"],
+        ["duration", "Duration (minutes)", "number"],
+        ["distance", "Distance (km)", "number"],
+        ["date", "Date", "date"],
+        ["notes", "Notes", "textarea"]
+      ]
+    },
+    hydration: {
+      title: "Hydration",
+      description: "Track your daily water intake.",
+      store: "water",
+      fields: [
+        ["amount", "Water (ml)", "number"]
+      ]
+    },
+    study: {
+      title: "Study",
+      description: "Track your learning sessions.",
+      store: "study",
+      fields: [
+        ["subject", "Subject", "text"],
+        ["duration", "Duration (minutes)", "number"],
+        ["topic", "Topic", "text"],
+        ["date", "Date", "date"]
+      ]
+    },
+    habits: {
+      title: "Habits",
+      description: "Build consistent daily habits.",
+      store: "habits",
+      fields: [
+        ["name", "Habit name", "text"]
+      ]
+    },
+    journal: {
+      title: "Journal",
+      description: "A private space for your thoughts.",
+      store: "journal",
+      fields: [
+        ["title", "Title", "text"],
+        ["mood", "Mood", "select", ["Good", "Okay", "Low", "Focused"]],
+        ["date", "Date", "date"],
+        ["content", "Your entry", "textarea"]
+      ]
+    }
+  };
+
+  function moduleField(field) {
+    const [name, label, type, options] = field;
+    const id = `module-${name}`;
+
+    let control = "";
+
+    if (type === "select") {
+      control = `<select id="${id}" name="${name}">
+        ${options.map(option =>
+          `<option value="${escapeHTML(option)}">${escapeHTML(option)}</option>`
+        ).join("")}
+      </select>`;
+    } else if (type === "textarea") {
+      control = `<textarea id="${id}" name="${name}" rows="3"></textarea>`;
+    } else {
+      control = `<input id="${id}" name="${name}" type="${type}"
+        ${type === "number" ? 'min="0" step="any"' : ""}
+        ${type === "date" ? `value="${today()}"` : ""}
+        ${name === "amount" || name === "duration" ? "required" : ""}>`;
+    }
+
+    return `<label class="field">
+      <span>${escapeHTML(label)}</span>
+      ${control}
+    </label>`;
+  }
+
+  async function renderModule(page) {
+    const root = $("#module-root");
+    const config = MODULES[page];
+
+    if (!root || !config) return;
+
+    const records = await getAll(config.store);
+
+    let extra = "";
+
+    if (page === "money") {
+      const income = records
+        .filter(item => item.type === "income")
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+      const expenses = records
+        .filter(item => item.type === "expense")
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+      extra = `<div class="module-grid">
+        <article class="module-card">
+          <span>Income</span><h3>${moneyFormat(income)}</h3>
+        </article>
+        <article class="module-card">
+          <span>Expenses</span><h3>${moneyFormat(expenses)}</h3>
+        </article>
+        <article class="module-card">
+          <span>Balance</span><h3>${moneyFormat(income - expenses)}</h3>
+        </article>
+      </div>`;
+    }
+
+    if (page === "hydration") {
+      const goal = Number(getPreference("water-goal", "2000"));
+      const intake = records
+        .filter(item => item.date === today())
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+      extra = `<div class="module-card">
+        <h3>${intake} / ${goal} ml</h3>
+        <p>Today's water intake</p>
+        <button class="primary-button" data-water="250">+250 ml</button>
+        <button class="secondary-button" data-water="500">+500 ml</button>
+        <label class="field">Daily goal (ml)
+          <input id="water-goal" type="number" min="250" value="${goal}">
+        </label>
+        <button class="secondary-button" id="save-water-goal">Save goal</button>
+      </div>`;
+    }
+
+    if (page === "habits") {
+      extra = `<div class="module-card">
+        <p>Check a habit when you've completed it today.</p>
+      </div>`;
+    }
+
+    const formFields = config.fields.map(moduleField).join("");
+
+    root.innerHTML = `
+      <div class="module-header">
+        <div>
+          <h2>${escapeHTML(config.title)}</h2>
+          <p>${escapeHTML(config.description)}</p>
+        </div>
+      </div>
+      ${extra}
+      <form class="module-form" id="module-form">
+        ${formFields}
+        <button class="primary-button" type="submit">Save record</button>
+      </form>
+      <div class="module-list">
+        <h3>Recent records</h3>
+        ${records.slice().reverse().slice(0, 30).map(record =>
+          `<article class="module-row">
+            <div>
+              <strong>${escapeHTML(
+                record.title ||
+                record.name ||
+                record.activity ||
+                record.subject ||
+                record.description ||
+                record.category ||
+                record.amount + " ml" ||
+                "Record"
+              )}</strong>
+              <p>${escapeHTML(record.date || "")}</p>
+            </div>
+            <button class="task-action-button"
+              data-delete-record="${escapeHTML(record.id)}">Delete</button>
+          </article>`
+        ).join("") || "<p>No records yet.</p>"}
+      </div>`;
+
+    $("#module-form")?.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const data = Object.fromEntries(
+        new FormData(event.currentTarget).entries()
+      );
+
+      if (page === "money" || page === "fitness" || page === "study") {
+        ["amount", "duration", "distance"].forEach(key => {
+          if (data[key] !== undefined) data[key] = Number(data[key]);
+        });
+      }
+
+      if (page === "hydration") {
+        data.date = today();
+      }
+
+      if (page === "habits") {
+        data.name = data.name.trim();
+      }
+
+      await save(config.store, {
+        id: makeId(),
+        ...data,
+        date: data.date || today(),
+        createdAt: new Date().toISOString()
+      });
+
+      toast("Saved successfully");
+      await renderModule(page);
+    });
+
+    $$("[data-delete-record]", root).forEach(button => {
+      button.addEventListener("click", async () => {
+        if (!confirm("Delete this record?")) return;
+        await remove(config.store, button.dataset.deleteRecord);
+        await renderModule(page);
+      });
+    });
+
+    $$("[data-water]", root).forEach(button => {
+      button.addEventListener("click", async () => {
+        await save("water", {
+          id: makeId(),
+          amount: Number(button.dataset.water),
+          date: today()
+        });
+        await renderModule(page);
+      });
+    });
+
+    $("#save-water-goal")?.addEventListener("click", () => {
+      const goal = Number($("#water-goal").value);
+
+      if (goal < 250) {
+        toast("Choose a goal of at least 250 ml");
+        return;
+      }
+
+      setPreference("water-goal", goal);
+      renderModule(page);
+      toast("Water goal updated");
+    });
+  }
+
+  function navigate(page) {
+    state.page = page;
+
+    const modulePage = MODULES[page] ? "module" : page;
+
+    $$("[data-page-content]").forEach(element => {
+      element.classList.toggle(
+        "active",
+        element.dataset.pageContent === modulePage
+      );
+    });
+
+    $$("[data-page]").forEach(link => {
+      link.classList.toggle(
+        "active",
+        link.dataset.page === page
+      );
+    });
+
+    setText(
+      "#breadcrumb-current",
+      MODULES[page]?.title ||
+      page.charAt(0).toUpperCase() + page.slice(1)
+    );
+
+    if (MODULES[page]) {
+      renderModule(page);
+    } else if (page === "tasks") {
+      renderTasks();
+    } else if (page === "overview") {
+      renderDashboard();
+    }
+
+    $("#sidebar")?.classList.remove("open");
+    $("#sidebar-overlay")?.classList.remove("visible");
+  }
+
+  async function refresh() {
+    await renderDashboard();
+    await renderTasks();
+
+    if (MODULES[state.page]) {
+      await renderModule(state.page);
     }
   }
 
-  function saveProfile() {
-    const profileInput = $("#profile-name");
-    if (!profileInput) return;
-
-    const name = profileInput.value.trim() || "Your name";
-
-    try {
-      localStorage.setItem("dayflow-profile-name", name);
-      profileInput.value = name;
-      loadProfile();
-      showToast("Profile updated.");
-    } catch {
-      showToast("Could not save your profile preference.");
-    }
-  }
-
-  /* -------------------- BACKUP / RESTORE -------------------- */
-
-  function exportBackup() {
+  async function exportBackup() {
     const backup = {
       app: "DAYFLOW",
-      version: BACKUP_VERSION,
+      version: 1,
       exportedAt: new Date().toISOString(),
-      tasks: state.tasks.map(normalizeTask)
+      preferences: {
+        theme: getPreference("theme", "light"),
+        profileName: getPreference("profile-name", ""),
+        waterGoal: getPreference("water-goal", "2000")
+      },
+      data: {}
     };
+
+    for (const store of STORES) {
+      backup.data[store] = await getAll(store);
+    }
 
     const blob = new Blob(
       [JSON.stringify(backup, null, 2)],
@@ -769,284 +711,192 @@
     );
 
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    const anchor = document.createElement("a");
 
-    link.href = url;
-    link.download = `dayflow-backup-${todayString()}.json`;
-
-    document.body.append(link);
-    link.click();
-    link.remove();
+    anchor.href = url;
+    anchor.download = `dayflow-backup-${today()}.json`;
+    anchor.click();
 
     URL.revokeObjectURL(url);
-
-    showToast("Your backup is ready.");
-  }
-
-  function validateBackup(data) {
-    if (
-      !data ||
-      data.app !== "DAYFLOW" ||
-      !Array.isArray(data.tasks)
-    ) {
-      throw new Error("This file is not a valid DAYFLOW backup.");
-    }
-
-    if (data.version !== BACKUP_VERSION) {
-      throw new Error("This backup version is not supported.");
-    }
-
-    if (data.tasks.length > 10000) {
-      throw new Error("This backup contains too many tasks.");
-    }
-
-    const ids = new Set();
-
-    return data.tasks.map(item => {
-      if (
-        !item ||
-        typeof item.title !== "string" ||
-        !item.title.trim()
-      ) {
-        throw new Error("The backup contains an invalid task.");
-      }
-
-      const task = normalizeTask(item);
-
-      if (ids.has(task.id)) {
-        throw new Error("The backup contains duplicate task IDs.");
-      }
-
-      ids.add(task.id);
-      return task;
-    });
+    toast("Backup exported");
   }
 
   async function importBackup(file) {
-    if (!file) return;
+    try {
+      const backup = JSON.parse(await file.text());
 
-    if (file.size > 10 * 1024 * 1024) {
-      throw new Error("Backup file is too large.");
-    }
+      if (
+        backup.app !== "DAYFLOW" ||
+        !backup.data ||
+        typeof backup.data !== "object"
+      ) {
+        throw new Error("Invalid DAYFLOW backup");
+      }
 
-    const content = await file.text();
-    const parsed = JSON.parse(content);
-    const importedTasks = validateBackup(parsed);
+      for (const store of STORES) {
+        if (!Array.isArray(backup.data[store])) {
+          backup.data[store] = [];
+        }
 
-    const shouldReplace = window.confirm(
-      `This backup contains ${importedTasks.length} tasks.\n\n` +
-      "OK = Replace your current tasks\n" +
-      "Cancel = Keep your current tasks and merge"
-    );
+        if (backup.data[store].some(item =>
+          !item || typeof item.id !== "string"
+        )) {
+          throw new Error("Backup contains invalid records");
+        }
+      }
 
-    let finalTasks;
-
-    if (shouldReplace) {
-      finalTasks = importedTasks;
-    } else {
-      const existing = [...state.tasks];
-      const existingIds = new Set(existing.map(task => task.id));
-
-      const newTasks = importedTasks.filter(
-        task => !existingIds.has(task.id)
+      const replace = confirm(
+        "OK = Replace all existing data\nCancel = Merge backup data"
       );
 
-      finalTasks = [...existing, ...newTasks];
-    }
-
-    await replaceAllTasks(finalTasks);
-    await refreshTasks();
-
-    showToast("Backup imported successfully.");
-  }
-
-  /* -------------------- STORAGE STATUS -------------------- */
-
-  async function updateStorageStatus() {
-    const status = $("#storage-status");
-    if (!status) return;
-
-    if (navigator.storage?.estimate) {
-      try {
-        const estimate = await navigator.storage.estimate();
-
-        const usage = estimate.usage || 0;
-        const quota = estimate.quota || 0;
-
-        const usageMB = (usage / (1024 * 1024)).toFixed(2);
-        const quotaMB = quota
-          ? (quota / (1024 * 1024)).toFixed(0)
-          : "Unknown";
-
-        status.textContent = `Local storage · ${usageMB} MB used`;
-        status.title = `Estimated browser storage quota: ${quotaMB} MB`;
-        return;
-      } catch {
-        // Fall through to default status.
+      if (replace) {
+        for (const store of STORES) {
+          await requestStore(store, "readwrite", objectStore =>
+            objectStore.clear()
+          );
+        }
       }
+
+      for (const store of STORES) {
+        const existing = await getAll(store);
+        const ids = new Set(existing.map(item => item.id));
+
+        for (const item of backup.data[store]) {
+          if (!ids.has(item.id)) {
+            await save(store, item);
+          }
+        }
+      }
+
+      if (backup.preferences) {
+        for (const [key, value] of Object.entries(backup.preferences)) {
+          if (["theme", "profileName", "waterGoal"].includes(key)) {
+            setPreference(
+              key === "profileName" ? "profile-name" :
+              key === "waterGoal" ? "water-goal" : key,
+              String(value)
+            );
+          }
+        }
+      }
+
+      setTheme(getPreference("theme", "light"));
+      await refresh();
+      toast("Backup imported successfully");
+    } catch (error) {
+      console.error(error);
+      toast("Import failed: " + error.message);
     }
-
-    status.textContent = "Data stored locally in this browser";
   }
 
-  /* -------------------- ERROR HANDLING -------------------- */
-
-  function handleStorageError(error) {
-    console.error("DAYFLOW storage error:", error);
-    showToast("Something went wrong. Please try again.");
-  }
-
-  /* -------------------- EVENT LISTENERS -------------------- */
-
-  function bindEvents() {
-    // Navigation
+  function setupEvents() {
     $$("[data-page]").forEach(link => {
       link.addEventListener("click", event => {
         event.preventDefault();
-        navigateTo(link.dataset.page);
+        navigate(link.dataset.page);
       });
     });
 
-    // Add task buttons
-    $("#add-task-button")?.addEventListener("click", () => {
-      openTaskModal();
-    });
+    $("#task-form")?.addEventListener("submit", handleTaskSubmit);
 
-    $("#dashboard-add-task")?.addEventListener("click", () => {
-      openTaskModal();
-    });
+    $("#dashboard-add-task")?.addEventListener("click", () =>
+      openTaskModal()
+    );
 
-    // Modal controls
+    $("#add-task-button")?.addEventListener("click", () =>
+      openTaskModal()
+    );
+
     $("#close-task-modal")?.addEventListener("click", closeTaskModal);
     $("#cancel-task-button")?.addEventListener("click", closeTaskModal);
 
-    taskForm?.addEventListener("submit", event => {
-      handleTaskSubmit(event).catch(handleStorageError);
-    });
-
-    taskModal?.addEventListener("click", event => {
-      if (event.target === taskModal) {
-        closeTaskModal();
-      }
-    });
-
-    // Task filters
     $$("[data-filter]").forEach(button => {
       button.addEventListener("click", () => {
         state.filter = button.dataset.filter;
 
-        $$("[data-filter]").forEach(filterButton => {
-          const active = filterButton === button;
-          filterButton.classList.toggle("active", active);
-          filterButton.setAttribute("aria-pressed", String(active));
-        });
+        $$("[data-filter]").forEach(item =>
+          item.classList.toggle("active", item === button)
+        );
 
         renderTasks();
       });
     });
 
-    // Task search
     $("#task-search")?.addEventListener("input", event => {
-      state.search = event.target.value.trim();
+      state.search = event.target.value.toLowerCase().trim();
       renderTasks();
     });
 
-    // Theme
     $("#theme-toggle")?.addEventListener("click", () => {
-      const nextTheme = document.body.classList.contains("dark")
-        ? "light"
-        : "dark";
-
-      setTheme(nextTheme);
+      setTheme(
+        document.body.classList.contains("dark") ? "light" : "dark"
+      );
     });
 
     $("#settings-theme-toggle")?.addEventListener("click", () => {
-      const nextTheme = document.body.classList.contains("dark")
-        ? "light"
-        : "dark";
-
-      setTheme(nextTheme);
+      setTheme(
+        document.body.classList.contains("dark") ? "light" : "dark"
+      );
     });
 
-    // Mobile navigation
     $("#mobile-menu-button")?.addEventListener("click", () => {
-      $("#sidebar")?.classList.add("open");
-      $("#sidebar-overlay")?.classList.add("visible");
+      $("#sidebar")?.classList.toggle("open");
+      $("#sidebar-overlay")?.classList.toggle("visible");
     });
 
-    $("#sidebar-overlay")?.addEventListener("click", closeMobileSidebar);
-
-    // Profile
-    $("#profile-name")?.addEventListener("change", saveProfile);
-
-    $("#profile-button")?.addEventListener("click", () => {
-      navigateTo("settings");
+    $("#sidebar-overlay")?.addEventListener("click", () => {
+      $("#sidebar")?.classList.remove("open");
+      $("#sidebar-overlay")?.classList.remove("visible");
     });
 
-    // Backup
     $("#export-data-button")?.addEventListener("click", exportBackup);
 
-    $("#import-data-button")?.addEventListener("click", () => {
-      $("#import-file-input")?.click();
-    });
+    $("#import-data-button")?.addEventListener("click", () =>
+      $("#import-file-input")?.click()
+    );
 
-    $("#import-file-input")?.addEventListener("change", async event => {
+    $("#import-file-input")?.addEventListener("change", event => {
       const file = event.target.files?.[0];
-
-      try {
-        await importBackup(file);
-      } catch (error) {
-        console.error(error);
-        showToast(error.message || "Could not import backup.");
-      } finally {
-        event.target.value = "";
-      }
+      if (file) importBackup(file);
+      event.target.value = "";
     });
 
-    // Escape key
-    document.addEventListener("keydown", event => {
-      if (event.key === "Escape") {
-        closeMobileSidebar();
-      }
+    $("#save-profile-button")?.addEventListener("click", () => {
+      const name = $("#profile-name")?.value.trim() || "";
+      setPreference("profile-name", name);
+      setText("#sidebar-profile-name", name);
+      toast("Profile saved");
     });
   }
 
-  /* -------------------- INITIALIZATION -------------------- */
-
-  async function init() {
-    setText("current-date", formatToday());
-
-    loadTheme();
-    loadProfile();
-    bindEvents();
-
+  async function initialize() {
     try {
       state.db = await openDatabase();
 
-      await refreshTasks();
-      await updateStorageStatus();
+      setTheme(getPreference("theme", "light"));
 
-      document.documentElement.classList.add("app-ready");
+      const name = getPreference("profile-name", "");
+      if ($("#profile-name")) $("#profile-name").value = name;
 
-      console.info("DAYFLOW initialized successfully.");
+      setText("#sidebar-profile-name", name);
+
+      const date = $("#current-date");
+      if (date) {
+        date.textContent = new Date().toLocaleDateString(
+          undefined,
+          { weekday: "long", day: "numeric", month: "long" }
+        );
+      }
+
+      setupEvents();
+      await refresh();
+
+      console.log("DAYFLOW initialized successfully");
     } catch (error) {
       console.error("DAYFLOW initialization failed:", error);
-
-      showToast(
-        "DAYFLOW could not open local storage. Try refreshing the page."
-      );
-
-      setText(
-        "storage-status",
-        "Local storage unavailable"
-      );
+      toast("Could not start DAYFLOW. Check the browser console.");
     }
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init, { once: true });
-  } else {
-    init();
-  }
-
+  document.addEventListener("DOMContentLoaded", initialize);
 })();
